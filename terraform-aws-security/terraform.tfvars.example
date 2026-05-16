@@ -1,0 +1,12 @@
+# terraform.tfvars.example
+# Copy to terraform.tfvars and fill in real values.
+# NEVER commit terraform.tfvars to source control — it is in .gitignore.
+
+aws_region         = "us-east-1"
+aws_account_id     = "123456789012"
+environment        = "staging"
+vpc_cidr           = "10.0.0.0/16"
+availability_zones = ["us-east-1a", "us-east-1b", "us-east-1c"]
+
+# Deliver GuardDuty and Config findings here
+security_alert_email = "security-team@example.com"

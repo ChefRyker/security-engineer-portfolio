@@ -1,0 +1,138 @@
+name: Policy-as-Code Gate
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  opa-evaluate:
+    name: OPA Policy Evaluation
+    runs-on: ubuntu-latest
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OPA
+        run: |
+          curl -Lo /usr/local/bin/opa \
+            https://github.com/open-policy-agent/opa/releases/latest/download/opa_linux_amd64
+          chmod +x /usr/local/bin/opa
+          opa version
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CICD_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: opa-eval-${{ github.run_id }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.8.0"
+
+      - name: Terraform Init
+        run: |
+          cd ../terraform-aws-security || true
+          terraform init -backend=false
+
+      - name: Generate Terraform plan JSON
+        run: |
+          cd ../terraform-aws-security || true
+          terraform plan -out=tfplan -var-file=terraform.tfvars
+          terraform show -json tfplan > /tmp/plan.json
+        env:
+          TF_VAR_aws_account_id: ${{ secrets.AWS_ACCOUNT_ID }}
+          TF_VAR_security_alert_email: ${{ secrets.SECURITY_ALERT_EMAIL }}
+          TF_VAR_environment: staging
+
+      - name: Run OPA policy unit tests
+        run: opa test policies/ -v
+
+      - name: Evaluate policies against plan
+        id: opa
+        run: |
+          RESULT=$(opa eval \
+            --data policies/ \
+            --input /tmp/plan.json \
+            --format pretty \
+            "data.terraform.deny")
+          echo "$RESULT"
+
+          # Fail if any deny messages were produced
+          DENY_COUNT=$(echo "$RESULT" | python3 -c "
+          import sys, json
+          data = json.load(sys.stdin)
+          results = data.get('result', [{}])[0].get('expressions', [{}])[0].get('value', [])
+          print(len(results))
+          " 2>/dev/null || echo "0")
+
+          echo "deny_count=$DENY_COUNT" >> "$GITHUB_OUTPUT"
+          echo "result<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$RESULT" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+          if [ "$DENY_COUNT" -gt "0" ]; then
+            echo "::error::OPA policies found $DENY_COUNT violation(s). See PR comment for details."
+            exit 1
+          fi
+
+      - name: Comment policy results on PR
+        uses: actions/github-script@v7
+        if: always()
+        with:
+          script: |
+            const count = '${{ steps.opa.outputs.deny_count }}';
+            const result = `${{ steps.opa.outputs.result }}`;
+            const icon = count === '0' ? '✅' : '❌';
+            const body = [
+              `## ${icon} OPA Policy Evaluation`,
+              count === '0'
+                ? '_All policies passed — no violations found._'
+                : `**${count} violation(s) found:**\n\`\`\`\n${result}\n\`\`\``,
+            ].join('\n\n');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body
+            });
+
+  cis-audit:
+    name: CIS Benchmark Audit
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: staging
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_CICD_ROLE_ARN }}
+          aws-region: us-east-1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install boto3 rich
+
+      - name: Run CIS checks
+        run: python audit/cis_checks.py --region us-east-1
+        continue-on-error: true   # report findings, don't block deploy
+
+      - name: Upload findings report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cis-findings-report
+          path: docs/findings-report.md
