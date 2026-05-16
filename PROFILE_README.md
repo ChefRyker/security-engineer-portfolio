@@ -1,10 +1,9 @@
-# Hi, I'm [Your Name] 👋 — Security Engineer
+# Hi, I'm Kaleb Ryker Black Cloud and Security Engineer
 
-> I build secure-by-default infrastructure. These repos demonstrate real-world security engineering: hardened IaC, automated security pipelines, and policy-as-code enforcement.
+> I build secure-by-default infrastructure. These repos include hardened IaC, automated security pipelines, and policy-as-code enforcement.
 
 ## 📌 Pinned Repos
 
-| Repo | What it shows |
 |------|--------------|
 | [terraform-aws-security](https://github.com/you/terraform-aws-security) | Hardened VPC, least-privilege IAM, KMS encryption, GuardDuty, SCPs |
 | [secure-cicd-pipeline](https://github.com/you/secure-cicd-pipeline) | GitHub Actions: SAST, SCA, secret scanning, SBOM, DAST |
@@ -18,5 +17,5 @@
 
 ## 📬 Contact
 
-- LinkedIn: [linkedin.com/in/you](https://linkedin.com/in/you)
-- Email: you@example.com
+- LinkedIn: [www.linkedin.com/in/kalebrykerblack]
+- Email: kblack93@proton.me
